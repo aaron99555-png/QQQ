@@ -1,0 +1,944 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Shield, AlertTriangle, CheckCircle, XCircle, Award, HardHat, HandMetal, Wind, Zap, RefreshCw, ChevronRight, Trophy, User, Clock, Flame, Box, Activity } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp, query } from 'firebase/firestore';
+
+// --- Firebase Configuration ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// --- 擴充至 50 題的完整題庫 ---
+const fullQuizData = [
+  // --- 原有題目 (1-20) ---
+  {
+    id: 1,
+    category: "呼吸系統防護",
+    color: "bg-blue-50 text-blue-900 border-blue-200",
+    icon: <Wind className="w-5 h-5" />,
+    scenario: "【有機溶劑作業】\n在通風不良處進行油漆、噴漆或使用甲苯擦拭清潔時，應佩戴：",
+    options: ["N95 防塵口罩", "活性碳口罩 (僅除異味用)", "附有有機氣體濾毒罐的防毒面具", "棉質口罩"],
+    correctIndex: 2,
+    explanation: "有機溶劑揮發氣體需使用專用濾毒罐吸附，一般口罩無法過濾有機蒸氣。"
+  },
+  {
+    id: 2,
+    category: "呼吸系統防護",
+    color: "bg-blue-50 text-blue-900 border-blue-200",
+    icon: <Wind className="w-5 h-5" />,
+    scenario: "【粉塵作業】\n在粉末投料或水泥、研磨產生大量粉塵的環境，應佩戴：",
+    options: ["一般平面醫療口罩", "檢驗合格的防塵口罩 (如 N95 等級)", "護目鏡即可", "活性碳口罩"],
+    correctIndex: 1,
+    explanation: "需過濾微細粉塵，必須使用檢驗合格之防塵口罩(如N95)。"
+  },
+  {
+    id: 3,
+    category: "呼吸系統防護",
+    color: "bg-blue-50 text-blue-900 border-blue-200",
+    icon: <Wind className="w-5 h-5" />,
+    scenario: "【局限空間/缺氧作業】\n欲進入長期未通風的汙水槽或儲槽（可能有缺氧風險）時，必須佩戴：",
+    options: ["高濃度濾毒罐面具", "空氣呼吸器 (SCBA) 或輸氣管面罩", "兩層活性碳口罩", "電動送風式防塵面具"],
+    correctIndex: 1,
+    explanation: "缺氧環境過濾式面具無效，必須主動提供空氣源(SCBA或輸氣管)。"
+  },
+  {
+    id: 4,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【化學品分裝】\n分裝強酸、強鹼（如硫酸、氫氧化鈉）時，手部應佩戴：",
+    options: ["棉紗手套", "防切手套", "耐酸鹼橡膠/合成橡膠長手套", "一次性乳膠手套"],
+    correctIndex: 2,
+    explanation: "一般手套會被酸鹼腐蝕或滲透，需使用專用耐酸鹼手套。"
+  },
+  {
+    id: 5,
+    category: "手部與身體防護",
+    color: "bg-red-50 text-red-900 border-red-200 border-2",
+    icon: <AlertTriangle className="w-5 h-5 text-red-600" />,
+    scenario: "【旋轉機械操作】\n操作鑽床、車床等有高速旋轉軸的機台時，手部防護具應如何選擇？",
+    options: ["戴棉紗手套增加摩擦力", "戴防滑橡膠手套", "嚴禁佩戴任何手套，以免被捲入", "戴真皮手套"],
+    correctIndex: 2,
+    explanation: "絕對禁止！手套纖維容易被高速旋轉軸捲入，造成手指截斷或骨折嚴重傷害。"
+  },
+  {
+    id: 6,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【切割作業】\n使用美工刀拆箱或處理銳利邊緣金屬板時，手部應佩戴：",
+    options: ["防切割手套 (Cut-resistant gloves)", "隔熱手套", "手術用手套", "塗膠棉紗手套"],
+    correctIndex: 0,
+    explanation: "防切割手套採用特殊纖維編織，能有效防止銳器割傷。"
+  },
+  {
+    id: 7,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【高溫作業】\n拿取高溫加熱後的工件或在熔爐前作業，手部應佩戴：",
+    options: ["塑膠手套", "專用隔熱/耐高溫手套 (如鋁箔或克維拉)", "濕的棉紗手套", "尼龍手套"],
+    correctIndex: 1,
+    explanation: "塑膠會熔化、濕手套會導熱燙傷，需使用專用隔熱材質。"
+  },
+  {
+    id: 8,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【低溫作業】\n在液態氮操作區或零下冷凍庫作業，手部應佩戴：",
+    options: ["防凍/保暖手套", "一般棉紗手套", "防切手套", "橡膠手套"],
+    correctIndex: 0,
+    explanation: "需防凍傷，普通手套無法阻絕極低溫。"
+  },
+  {
+    id: 9,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【感電危害】\n進行低壓配電盤活線作業（通電中維修），手部應佩戴：",
+    options: ["絕緣橡膠手套", "防靜電手套", "一般皮手套", "焊接手套"],
+    correctIndex: 0,
+    explanation: "絕緣手套能阻隔電流通過人體，防止觸電。"
+  },
+  {
+    id: 10,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【化學品洩漏處理】\n發生大量未知化學品洩漏需緊急搶救時，身體應穿著：",
+    options: ["輕便雨衣", "實驗室白袍", "適當等級的化學防護衣 (如 A/B/C 級)", "圍裙"],
+    correctIndex: 2,
+    explanation: "大量洩漏需全身性防護，依危害等級選擇A/B/C級防護衣。"
+  },
+  {
+    id: 11,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【物品搬運】\n人力搬運重物或模具，為防止物品掉落砸傷腳趾，應穿著：",
+    options: ["鋼頭安全鞋", "運動鞋", "雨鞋", "拖鞋"],
+    correctIndex: 0,
+    explanation: "鋼頭能承受重物衝擊，保護腳趾不碎裂。"
+  },
+  {
+    id: 12,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【堆高機搬運】\n駕駛堆高機進行作業時，頭部必須佩戴：",
+    options: ["棒球帽", "安全帽 (附頤帶)", "遮陽帽", "無需佩戴"],
+    correctIndex: 1,
+    explanation: "防止貨物掉落或車輛翻覆時頭部撞擊，且必須扣好頤帶。"
+  },
+  {
+    id: 13,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【強光作業】\n進行電銲（焊接）作業時，為保護眼睛與臉部，應佩戴：",
+    options: ["太陽眼鏡", "蛙鏡", "具濾光功能的焊接面罩", "一般透明護目鏡"],
+    correctIndex: 2,
+    explanation: "焊接產生強烈紫外線與紅外線，需專用濾光鏡片防止「電光性眼炎」。"
+  },
+  {
+    id: 14,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【化學噴濺危害】\n在實驗室或現場可能發生液體噴濺到臉部時，應優先佩戴：",
+    options: ["一般近視眼鏡", "太陽眼鏡", "防護面罩 (Face Shield) 或全罩式護目鏡", "老花眼鏡"],
+    correctIndex: 2,
+    explanation: "需保護全臉及眼睛側面，避免化學液體噴入。"
+  },
+  {
+    id: 15,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【飛出物危害】\n使用手持砂輪機研磨金屬時，為防鐵屑飛入眼睛，應佩戴：",
+    options: ["安全眼鏡 (Safety Glasses) 或護目鏡", "放大鏡", "隱形眼鏡", "墨鏡"],
+    correctIndex: 0,
+    explanation: "需抗衝擊鏡片，防止高速飛出的鐵屑刺傷眼球。"
+  },
+  {
+    id: 16,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Zap className="w-5 h-5" />,
+    scenario: "【高架作業】\n在高度 2 公尺以上且無護欄的場所作業，必須佩戴：",
+    options: ["護腰帶", "背負式安全帶 (全身式)", "降落傘", "護膝"],
+    correctIndex: 1,
+    explanation: "背負式安全帶能在墜落時分散衝擊力至全身，避免脊椎受傷。"
+  },
+  {
+    id: 17,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Zap className="w-5 h-5" />,
+    scenario: "【噪音作業】\n在沖床區或發電機旁等高噪音（超過85分貝）區域，應佩戴：",
+    options: ["藍牙耳機", "棉花球", "防音耳罩或耳塞", "毛帽"],
+    correctIndex: 2,
+    explanation: "需有效隔絕噪音分貝數，防止聽力受損。"
+  },
+  {
+    id: 18,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Zap className="w-5 h-5" />,
+    scenario: "【精密電子/易燃氣體區】\n為防止靜電火花引發火災或損壞產品，人員應穿戴：",
+    options: ["防靜電鞋/防靜電手環", "絕緣鞋", "毛衣", "塑膠雨衣"],
+    correctIndex: 0,
+    explanation: "防靜電裝備能將人體靜電導出，避免產生火花。"
+  },
+  {
+    id: 19,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Zap className="w-5 h-5" />,
+    scenario: "【戶外/吊掛作業區】\n在有天車（起重機）運行或上方有物品掉落風險的區域，頭部應佩戴：",
+    options: ["斗笠", "安全帽 (Safety Helmet)", "鴨舌帽", "頭巾"],
+    correctIndex: 1,
+    explanation: "唯一能有效防護上方物體掉落衝擊的裝備。"
+  },
+  {
+    id: 20,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Zap className="w-5 h-5" />,
+    scenario: "【長時間振動作業】\n長時間使用氣動鎚或鑿岩機，為減少手部振動傷害，應佩戴：",
+    options: ["防振手套", "防切手套", "耐酸鹼手套", "一般棉紗手套"],
+    correctIndex: 0,
+    explanation: "防振手套有特殊吸震材質，可減少白指病(振動病)發生機率。"
+  },
+  // --- 新增題目 (21-50) ---
+  {
+    id: 21,
+    category: "消防與緊急應變",
+    color: "bg-red-50 text-red-900 border-red-200",
+    icon: <Flame className="w-5 h-5" />,
+    scenario: "【火災初期滅火】\n使用滅火器進行初期滅火時，應站在哪個位置？",
+    options: ["下風處", "上風處", "火源正上方", "隨意位置"],
+    correctIndex: 1,
+    explanation: "應站在上風處，避免火焰與濃煙吹向自己，並確保逃生路徑。"
+  },
+  {
+    id: 22,
+    category: "呼吸系統防護",
+    color: "bg-blue-50 text-blue-900 border-blue-200",
+    icon: <Wind className="w-5 h-5" />,
+    scenario: "【防毒面具保存】\n使用過的防毒面具濾毒罐，暫時不使用時應如何保存？",
+    options: ["直接放在桌上", "掛在牆壁通風", "密封袋保存", "用水清洗後晾乾"],
+    correctIndex: 2,
+    explanation: "活性碳接觸空氣會持續吸附濕氣與氣體失效，需密封保存以延長壽命。"
+  },
+  {
+    id: 23,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【雷射作業】\n在雷射雕刻或切割機台附近作業時，眼睛應佩戴：",
+    options: ["一般太陽眼鏡", "該波長專用雷射防護鏡", "偏光眼鏡", "無需佩戴"],
+    correctIndex: 1,
+    explanation: "雷射光屬特定波長，需對應波長的防護鏡才能有效阻隔傷害視網膜。"
+  },
+  {
+    id: 24,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【碎玻璃處理】\n清理實驗室破碎的玻璃器皿時，手部應佩戴：",
+    options: ["防切割手套", "乳膠手套", "棉手套", "PE手套"],
+    correctIndex: 0,
+    explanation: "防切割手套能防止銳利玻璃割傷手部，乳膠或棉手套無防護力。"
+  },
+  {
+    id: 25,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Box className="w-5 h-5" />,
+    scenario: "【人因工程】\n長期需跪姿作業（如地板鋪設、設備底部維修），應佩戴：",
+    options: ["護膝", "護腕", "護腰", "安全鞋"],
+    correctIndex: 0,
+    explanation: "護膝可減少膝蓋關節壓力與磨損，預防職業性骨骼肌肉傷害。"
+  },
+  {
+    id: 26,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【無塵室作業】\n進入無塵室作業，除了防塵外，穿著無塵鞋的主要安全功能是？",
+    options: ["美觀", "防靜電 (ESD)", "增高", "保暖"],
+    correctIndex: 1,
+    explanation: "無塵鞋具導電性，能排除人體靜電，避免損壞精密電子元件。"
+  },
+  {
+    id: 27,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <Activity className="w-5 h-5" />,
+    scenario: "【生物危害】\n處理醫療廢棄物或具傳染性生物檢體時，應佩戴：",
+    options: ["棉紗手套", "防滲透橡膠手套", "露指手套", "防寒手套"],
+    correctIndex: 1,
+    explanation: "需完全阻隔液體滲透，防止病原體接觸皮膚感染。"
+  },
+  {
+    id: 28,
+    category: "呼吸系統防護",
+    color: "bg-blue-50 text-blue-900 border-blue-200",
+    icon: <Wind className="w-5 h-5" />,
+    scenario: "【金屬燻煙】\n進行金屬熔煉或焊接產生金屬燻煙（Fume）時，應選用何種口罩？",
+    options: ["活性碳口罩", "防護等級 DS2/N95 以上防塵口罩", "棉布口罩", "外科口罩"],
+    correctIndex: 1,
+    explanation: "金屬燻煙屬於微粒，需使用 N95/DS2 等級以上之防塵口罩過濾。"
+  },
+  {
+    id: 29,
+    category: "手部與身體防護",
+    color: "bg-red-50 text-red-900 border-red-200 border-2",
+    icon: <AlertTriangle className="w-5 h-5 text-red-600" />,
+    scenario: "【捲夾危害】\n身穿寬鬆衣物或佩戴長項鍊、識別證帶，操作旋轉機台時：",
+    options: ["沒關係，小心就好", "應將衣物紮入、取下飾品", "戴手套保護", "穿雨衣作業"],
+    correctIndex: 1,
+    explanation: "寬鬆衣物與飾品極易被捲入旋轉軸，造成勒頸或捲入事故。"
+  },
+  {
+    id: 30,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Zap className="w-5 h-5" />,
+    scenario: "【高電壓場所】\n在變電站或高壓電塔附近作業，除了絕緣手套，腳部應穿著：",
+    options: ["絕緣安全鞋", "導電鞋", "涼鞋", "慢跑鞋"],
+    correctIndex: 0,
+    explanation: "絕緣鞋能阻斷電流路徑，防止高壓電擊事故。"
+  },
+  {
+    id: 31,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【洗眼器使用】\n化學品噴濺眼睛時，沖洗眼睛的時間至少應持續多久？",
+    options: ["1分鐘", "3分鐘", "5分鐘", "15分鐘以上"],
+    correctIndex: 3,
+    explanation: "至少沖洗15分鐘，以確保徹底稀釋並沖掉化學物質。"
+  },
+  {
+    id: 32,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【尖銳物處理】\n更換針頭或處理碎玻璃時，最安全的做法是？",
+    options: ["徒手小心拿", "使用鑷子或夾具", "戴棉手套拿", "請別人拿"],
+    correctIndex: 1,
+    explanation: "避免手部直接接觸尖銳物，使用工具是隔離危害的最佳方式。"
+  },
+  {
+    id: 33,
+    category: "呼吸系統防護",
+    color: "bg-blue-50 text-blue-900 border-blue-200",
+    icon: <Wind className="w-5 h-5" />,
+    scenario: "【密合度測試】\n佩戴 N95 或防毒面具後，必須進行什麼動作確認有無漏氣？",
+    options: ["深呼吸", "正負壓密合度檢點 (User Seal Check)", "照鏡子", "問同事"],
+    correctIndex: 1,
+    explanation: "每次佩戴都需用手摀住面具進行呼氣/吸氣測試，確認無氣體洩漏。"
+  },
+  {
+    id: 34,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Zap className="w-5 h-5" />,
+    scenario: "【A字梯作業】\n使用 A 字梯進行高處作業時，嚴禁站在哪裡？",
+    options: ["第一階", "中間", "最頂端（頂板）", "地面"],
+    correctIndex: 2,
+    explanation: "站在頂板極易重心不穩摔落，應保留至少兩階不站。"
+  },
+  {
+    id: 35,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【腐蝕性液體搬運】\n搬運整桶硫酸或氫氟酸時，除了防護手套，腳部建議穿著：",
+    options: ["網布運動鞋", "防化學品長筒雨靴/安全鞋", "布希鞋", "拖鞋"],
+    correctIndex: 1,
+    explanation: "若液體潑濺到地面，布面鞋會立即吸收導致腳部灼傷，需穿防滲透靴。"
+  },
+  {
+    id: 36,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【安全帽更換】\n安全帽若曾遭受過一次重大撞擊，外觀看起來無損，應該：",
+    options: ["繼續使用", "立即更換", "貼上膠帶補強", "送去清洗"],
+    correctIndex: 1,
+    explanation: "內部吸震結構可能已受損，無法承受第二次撞擊，必須報廢。"
+  },
+  {
+    id: 37,
+    category: "消防與緊急應變",
+    color: "bg-red-50 text-red-900 border-red-200",
+    icon: <Flame className="w-5 h-5" />,
+    scenario: "【電氣火災】\n電氣設備起火（C類火災），嚴禁使用何種滅火器？",
+    options: ["二氧化碳滅火器", "乾粉滅火器", "水/泡沫滅火器", "海龍滅火器"],
+    correctIndex: 2,
+    explanation: "水會導電，可能導致滅火者觸電。"
+  },
+  {
+    id: 38,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【食品加工/餐廳】\n使用切肉機或處理大量刀具作業時，非持刀手應佩戴：",
+    options: ["不銹鋼網防切手套", "塑膠手套", "棉手套", "羊皮手套"],
+    correctIndex: 0,
+    explanation: "鋼網手套能有效抵擋刀刃切割，保護手指。"
+  },
+  {
+    id: 39,
+    category: "呼吸系統防護",
+    color: "bg-blue-50 text-blue-900 border-blue-200",
+    icon: <Wind className="w-5 h-5" />,
+    scenario: "【口罩更換時機】\n防塵口罩出現下列何種情況時不需要更換？",
+    options: ["呼吸阻力變大", "口罩破損或變形", "沾染血漬或體液", "戴了一小時但呼吸順暢"],
+    correctIndex: 3,
+    explanation: "只要呼吸順暢且外觀無損、無異味，不需頻繁更換；其他選項皆需立即更換。"
+  },
+  {
+    id: 40,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Zap className="w-5 h-5" />,
+    scenario: "【反光背心】\n在夜間或光線昏暗的廠區道路行走/作業，應穿著：",
+    options: ["全黑衣物", "反光背心", "迷彩服", "灰色外套"],
+    correctIndex: 1,
+    explanation: "反光背心能提高可視度，避免被車輛撞擊。"
+  },
+  {
+    id: 41,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【UV光固化作業】\n操作 UV 膠固化機台時，若設備無遮蔽罩，應佩戴：",
+    options: ["抗 UV 防護眼鏡", "老花眼鏡", "隱形眼鏡", "放大鏡"],
+    correctIndex: 0,
+    explanation: "紫外線會造成角膜傷害（電光性眼炎），需佩戴抗 UV 鏡片。"
+  },
+  {
+    id: 42,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【有機溶劑滲透】\n大多數的『乳膠手套(Latex)』對有機溶劑（如丙酮、甲苯）的防護效果如何？",
+    options: ["極佳", "不佳，容易滲透", "完全防護", "越薄越好"],
+    correctIndex: 1,
+    explanation: "乳膠手套對有機溶劑防護力差，應選用丁腈(Nitrile)或其他專用材質。"
+  },
+  {
+    id: 43,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Zap className="w-5 h-5" />,
+    scenario: "【聽力防護】\n耳塞佩戴正確的關鍵動作是？",
+    options: ["直接塞進去", "沾水潤滑", "揉細、拉耳、塞入、壓住", "只塞一半"],
+    correctIndex: 2,
+    explanation: "必須先搓揉變細，將耳朵向上拉開耳道，塞入後壓住待其膨脹密合。"
+  },
+  {
+    id: 44,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【高空作業工具】\n在高空作業時，手工具應該如何處置防止掉落？",
+    options: ["放在口袋", "使用工具防墜繩(Lanyard)繫在身上", "放在腳邊", "請人幫忙拿"],
+    correctIndex: 1,
+    explanation: "工具防墜繩能防止手滑時工具直接墜落地面砸傷人員。"
+  },
+  {
+    id: 45,
+    category: "呼吸系統防護",
+    color: "bg-blue-50 text-blue-900 border-blue-200",
+    icon: <Wind className="w-5 h-5" />,
+    scenario: "【鬍渣影響】\n佩戴緊密貼合型面罩（如N95或防毒面具）時，臉部有鬍渣會導致？",
+    options: ["增加過濾效果", "造成洩漏，降低防護力", "沒有影響", "比較保暖"],
+    correctIndex: 1,
+    explanation: "鬍渣會破壞面罩與臉部的氣密性，使受污染空氣直接進入。"
+  },
+  {
+    id: 46,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【化學品護目鏡】\n選用化學防護護目鏡時，應選擇哪種類型以防液體潑濺？",
+    options: ["通風孔開放式", "無通風孔或間接通風式(Goggles)", "一般眼鏡式", "太陽眼鏡"],
+    correctIndex: 1,
+    explanation: "需全罩貼合且無直接開孔，防止液體從縫隙流進眼睛。"
+  },
+  {
+    id: 47,
+    category: "特殊作業場所",
+    color: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    icon: <Zap className="w-5 h-5" />,
+    scenario: "【墜落懸掛】\n發生墜落被安全帶懸掛在半空時，應盡量做什麼動作延緩創傷？",
+    options: ["靜止不動", "腿部持續活動或使用懸掛帶站立", "大聲尖叫", "閉氣"],
+    correctIndex: 1,
+    explanation: "活動腿部可預防懸吊創傷（血流滯留腿部導致休克）。"
+  },
+  {
+    id: 48,
+    category: "手部與身體防護",
+    color: "bg-orange-50 text-orange-900 border-orange-200",
+    icon: <HandMetal className="w-5 h-5" />,
+    scenario: "【熱熔膠槍】\n使用高溫熱熔膠槍作業，應小心避免燙傷，建議佩戴：",
+    options: ["薄棉手套", "耐熱防護指套或手套", "塑膠手套", "無需防護"],
+    correctIndex: 1,
+    explanation: "熱熔膠溫度高，需耐熱材質防護。"
+  },
+  {
+    id: 49,
+    category: "消防與緊急應變",
+    color: "bg-red-50 text-red-900 border-red-200",
+    icon: <Flame className="w-5 h-5" />,
+    scenario: "【疏散逃生】\n聽到火災警報疏散時，應採取什麼姿勢通過濃煙區？",
+    options: ["直立奔跑", "低姿勢爬行 (採低姿勢)", "倒退走", "跳躍前進"],
+    correctIndex: 1,
+    explanation: "濃煙與熱氣會上升，接近地面處空氣較新鮮且溫度較低。"
+  },
+  {
+    id: 50,
+    category: "頭眼足部防護",
+    color: "bg-green-50 text-green-900 border-green-200",
+    icon: <HardHat className="w-5 h-5" />,
+    scenario: "【高空落物】\n經過施工架下方，為防止上方落物，必須佩戴：",
+    options: ["遮陽帽", "安全帽", "耳機", "雨傘"],
+    correctIndex: 1,
+    explanation: "工地或施工區最基本的頭部防護，防止重物直接衝擊腦部。"
+  }
+];
+
+export default function SafetyQuizGame() {
+  const [gameQuestions, setGameQuestions] = useState([]);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [score, setScore] = useState(0);
+  const [showResult, setShowResult] = useState(false);
+  const [isCorrect, setIsCorrect] = useState(false);
+  const [selectedOption, setSelectedOption] = useState(null);
+  const [gameStatus, setGameStatus] = useState('start'); // start, playing, end
+  const [leaderboard, setLeaderboard] = useState([]);
+  
+  // 新增 employeeId state
+  const [employeeId, setEmployeeId] = useState('');
+  
+  const [user, setUser] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
+  
+  // Timer states
+  const [startTime, setStartTime] = useState(null);
+  const [elapsedTime, setElapsedTime] = useState(0); // in seconds
+  const timerRef = useRef(null);
+
+  // 1. Initialize Auth
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Fetch Leaderboard (Guarded by user)
+  useEffect(() => {
+    if (!user) return;
+    
+    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'benq_safety_leaderboard'));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Sort: Score DESC, then Time ASC
+      const sorted = data.sort((a, b) => {
+        if (b.score !== a.score) {
+          return b.score - a.score; // High score first
+        }
+        return (a.timeSpent || 9999) - (b.timeSpent || 9999); // Short time first
+      });
+      setLeaderboard(sorted.slice(0, 50)); // Take top 50
+    }, (error) => {
+      console.error("Error fetching leaderboard:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // Timer Effect
+  useEffect(() => {
+    if (gameStatus === 'playing') {
+      timerRef.current = setInterval(() => {
+        setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+      }, 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [gameStatus, startTime]);
+
+  const handleStart = () => {
+    // 驗證輸入
+    if (!employeeId.trim()) {
+      alert("請輸入工號以開始挑戰！");
+      return;
+    }
+
+    // 隨機選取 20 題
+    const shuffled = [...fullQuizData].sort(() => 0.5 - Math.random());
+    const selected = shuffled.slice(0, 20);
+    
+    setGameQuestions(selected);
+    setCurrentQuestionIndex(0);
+    setScore(0);
+    setShowResult(false);
+    setSubmitSuccess(false);
+    // employeeId 保留，不重置
+    setElapsedTime(0);
+    setStartTime(Date.now());
+    setGameStatus('playing');
+  };
+
+  const handleOptionClick = (index) => {
+    if (showResult) return;
+
+    const currentQ = gameQuestions[currentQuestionIndex];
+    const correct = index === currentQ.correctIndex;
+    setIsCorrect(correct);
+    setSelectedOption(index);
+    if (correct) {
+      setScore(score + 1);
+    }
+    setShowResult(true);
+  };
+
+  const handleNext = () => {
+    setShowResult(false);
+    setSelectedOption(null);
+    if (currentQuestionIndex < gameQuestions.length - 1) {
+      setCurrentQuestionIndex(currentQuestionIndex + 1);
+    } else {
+      setGameStatus('end');
+    }
+  };
+
+  const handleSubmitScore = async () => {
+    if (!employeeId.trim() || !user || submitting) return;
+
+    setSubmitting(true);
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'benq_safety_leaderboard'), {
+        name: employeeId.trim(), // Save EmployeeID in name field for backward compatibility
+        employeeId: employeeId.trim(), 
+        score: score,
+        timeSpent: elapsedTime, 
+        total: gameQuestions.length,
+        timestamp: serverTimestamp(),
+        uid: user.uid
+      });
+      setSubmitSuccess(true);
+    } catch (error) {
+      console.error("Error submitting score:", error);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const getRating = () => {
+    const percentage = (score / 20) * 100; // Fixed denominator 20
+    if (percentage === 100) return { text: "工安衛士 S級", color: "text-purple-600" };
+    if (percentage >= 80) return { text: "安全達人 A級", color: "text-green-600" };
+    if (percentage >= 60) return { text: "還需努力 B級", color: "text-blue-600" };
+    return { text: "危險邊緣 C級", color: "text-red-600" };
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Start Screen
+  if (gameStatus === 'start') {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 font-sans">
+        <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center border-t-8 border-purple-800">
+          <div className="mb-4 text-purple-800 font-bold tracking-widest text-sm uppercase">BenQ Materials</div>
+          <div className="flex justify-center mb-6">
+            <div className="bg-purple-100 p-4 rounded-full animate-pulse">
+              <Shield className="w-16 h-16 text-purple-700" />
+            </div>
+          </div>
+          <h1 className="text-2xl font-bold text-slate-800 mb-2">作業場所安全防護<br/>快問快答</h1>
+          <p className="text-slate-500 mb-6 text-sm">從 50 題庫中隨機挑戰 20 題</p>
+          
+          {/* 輸入表單區域 */}
+          <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 mb-6 text-left">
+            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+              <User className="w-5 h-5 text-purple-600" /> 參賽者登錄
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1 uppercase">工號 (Employee ID)</label>
+                <input 
+                  type="text" 
+                  value={employeeId}
+                  onChange={(e) => setEmployeeId(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
+                  placeholder="請輸入工號"
+                />
+              </div>
+            </div>
+          </div>
+
+          <button 
+            onClick={handleStart}
+            disabled={!employeeId.trim()}
+            className="w-full bg-purple-700 hover:bg-purple-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold py-4 px-6 rounded-xl shadow-lg transform transition active:scale-95 flex items-center justify-center gap-2 text-lg"
+          >
+            開始挑戰 <ChevronRight />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // End Screen & Leaderboard
+  if (gameStatus === 'end') {
+    const rating = getRating();
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-start p-4 overflow-y-auto">
+        <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full text-center mb-6 border-t-4 border-purple-800">
+          <div className="flex justify-center mb-2">
+             <div className="relative">
+                <Award className="w-20 h-20 text-yellow-500" />
+                <div className="absolute top-0 right-0 bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">Final</div>
+             </div>
+          </div>
+          <div className="flex justify-center items-baseline gap-4 mb-2">
+            <div className="text-center">
+              <div className="text-xs text-slate-400 uppercase font-bold">得分</div>
+              <div className="text-4xl font-black text-slate-800">{score} <span className="text-lg text-slate-400 font-normal">/ 20</span></div>
+            </div>
+            <div className="text-center pl-4 border-l border-slate-200">
+              <div className="text-xs text-slate-400 uppercase font-bold">耗時</div>
+              <div className="text-4xl font-black text-slate-800">{formatTime(elapsedTime)}</div>
+            </div>
+          </div>
+          
+          <div className={`text-xl font-bold mb-6 ${rating.color}`}>{rating.text}</div>
+
+          {!submitSuccess ? (
+            <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-left">
+                  <div className="text-xs text-slate-500 uppercase font-bold">參賽者工號</div>
+                  <div className="font-bold text-slate-800 font-mono">{employeeId}</div>
+                </div>
+              </div>
+              
+              <button 
+                onClick={handleSubmitScore}
+                disabled={submitting}
+                className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-lg shadow disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {submitting ? '上傳中...' : '確認上傳成績'} <Trophy className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="mb-6 bg-green-50 p-4 rounded-xl border border-green-200 text-green-700 font-bold flex items-center justify-center gap-2">
+              <CheckCircle className="w-5 h-5" /> 成績已上傳！
+            </div>
+          )}
+
+          <button 
+            onClick={() => {
+               // 重新開始時保留 ID，但允許修改 (回到 Start 狀態)
+               setGameStatus('start');
+               setScore(0);
+               setSubmitSuccess(false);
+            }}
+            className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 px-6 rounded-xl shadow-lg flex items-center justify-center gap-2"
+          >
+            <RefreshCw className="w-5 h-5" /> 再次挑戰
+          </button>
+        </div>
+        
+        {/* Leaderboard Section */}
+        <div className="w-full max-w-md">
+          <div className="flex items-center gap-2 mb-3 px-2">
+            <Trophy className="w-5 h-5 text-yellow-600" />
+            <h3 className="font-bold text-slate-700">TOP 50 英雄榜 (同分比快)</h3>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-slate-100 text-slate-500 font-medium">
+                  <tr>
+                    <th className="px-3 py-3 text-center w-10">#</th>
+                    <th className="px-3 py-3">工號</th>
+                    <th className="px-3 py-3 text-right">耗時</th>
+                    <th className="px-3 py-3 text-right">得分</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {leaderboard.length > 0 ? (
+                    leaderboard.map((entry, index) => (
+                      <tr key={entry.id} className={index < 3 ? 'bg-yellow-50/50' : ''}>
+                        <td className="px-3 py-3 text-center font-bold text-slate-400">
+                          {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : index + 1}
+                        </td>
+                        <td className="px-3 py-3 font-medium text-slate-700 truncate max-w-[120px] font-mono">
+                          {entry.employeeId || entry.name}
+                        </td>
+                        <td className="px-3 py-3 text-right text-slate-500 font-mono text-xs">
+                          {entry.timeSpent ? formatTime(entry.timeSpent) : '--:--'}
+                        </td>
+                        <td className="px-3 py-3 text-right font-bold text-purple-700">{entry.score}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="4" className="px-4 py-8 text-center text-slate-400">
+                        目前還沒有紀錄，快來當第一名！
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="text-center text-xs text-slate-400 mt-4 mb-8">BenQ Materials Safety Quiz</div>
+        </div>
+      </div>
+    );
+  }
+
+  // Game Screen
+  if (gameQuestions.length === 0) return null; // Loading
+  const q = gameQuestions[currentQuestionIndex];
+  
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-start py-6 px-4 font-sans">
+      {/* Header / Progress */}
+      <div className="w-full max-w-md mb-4 flex justify-between items-end">
+        <div>
+           <h2 className="text-xs font-bold text-purple-800 uppercase tracking-wider mb-1">BenQ Materials</h2>
+           <div className="flex items-center gap-2">
+             <div className="text-sm font-bold text-slate-500">Q{currentQuestionIndex + 1}/20</div>
+             <div className="h-2 w-20 bg-slate-200 rounded-full overflow-hidden">
+               <div 
+                 className="h-full bg-purple-600 transition-all duration-300"
+                 style={{ width: `${((currentQuestionIndex + 1) / 20) * 100}%` }}
+               ></div>
+             </div>
+           </div>
+        </div>
+        <div className="flex gap-2">
+           <div className="flex items-center gap-1 text-slate-600 bg-white border border-slate-200 px-2 py-1 rounded-lg shadow-sm text-sm font-mono">
+              <Clock className="w-3 h-3" /> {formatTime(elapsedTime)}
+           </div>
+           <div className="text-purple-900 font-bold bg-white border border-purple-100 px-3 py-1 rounded-lg shadow-sm text-sm">
+             Score: {score}
+           </div>
+        </div>
+      </div>
+
+      {/* Card */}
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg overflow-hidden flex-1 flex flex-col border border-slate-200">
+        {/* Question Header */}
+        <div className={`p-4 border-b flex items-center gap-2 ${q.color}`}>
+          <div className="p-2 bg-white bg-opacity-60 rounded-lg shadow-sm">
+            {q.icon}
+          </div>
+          <span className="font-bold text-sm sm:text-base">{q.category}</span>
+        </div>
+
+        {/* Question Body */}
+        <div className="p-5 flex-1 flex flex-col justify-center">
+          <p className="text-lg sm:text-xl font-bold text-slate-800 leading-relaxed whitespace-pre-line mb-6">
+            {q.scenario}
+          </p>
+
+          <div className="space-y-3">
+            {q.options.map((option, index) => {
+              // Determine button styling based on state
+              let btnClass = "w-full text-left p-4 rounded-xl border-2 transition-all duration-200 text-sm sm:text-base font-medium flex items-center justify-between ";
+              
+              if (showResult) {
+                if (index === q.correctIndex) {
+                  btnClass += "bg-green-100 border-green-500 text-green-800"; 
+                } else if (index === selectedOption) {
+                  btnClass += "bg-red-100 border-red-500 text-red-800"; 
+                } else {
+                  btnClass += "bg-gray-50 border-gray-100 text-gray-400 opacity-50"; 
+                }
+              } else {
+                // Normal state
+                btnClass += "bg-white border-slate-100 shadow-sm hover:border-purple-400 hover:bg-purple-50 hover:text-purple-900 active:scale-98 text-slate-700";
+              }
+
+              return (
+                <button
+                  key={index}
+                  onClick={() => handleOptionClick(index)}
+                  disabled={showResult}
+                  className={btnClass}
+                >
+                  <span className="flex-1">
+                    <span className="font-bold mr-2 opacity-60">{String.fromCharCode(65 + index)}.</span>
+                    {option}
+                  </span>
+                  {showResult && index === q.correctIndex && <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />}
+                  {showResult && index === selectedOption && index !== q.correctIndex && <XCircle className="w-5 h-5 text-red-600 flex-shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Feedback Modal (Overlay at bottom) */}
+      {showResult && (
+        <div className="w-full max-w-md mt-4 animate-fade-in-up">
+          <div className={`rounded-xl p-4 shadow-lg border-l-4 ${isCorrect ? 'bg-green-50 border-green-500' : 'bg-red-50 border-red-500'}`}>
+            <div className="flex items-start gap-3">
+              {isCorrect ? (
+                <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
+              ) : (
+                <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-1" />
+              )}
+              <div className="flex-1">
+                <h3 className={`font-bold text-lg mb-1 ${isCorrect ? 'text-green-800' : 'text-red-800'}`}>
+                  {isCorrect ? '答對了！' : '哎呀，答錯了！'}
+                </h3>
+                <p className="text-slate-600 text-sm leading-relaxed mb-3">
+                  <span className="font-bold text-slate-800">解析：</span>
+                  {q.explanation}
+                </p>
+                <button 
+                  onClick={handleNext}
+                  className={`w-full py-3 rounded-lg font-bold text-white shadow-md transition-colors ${isCorrect ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+                >
+                  {currentQuestionIndex < gameQuestions.length - 1 ? '下一題' : '查看結果'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
